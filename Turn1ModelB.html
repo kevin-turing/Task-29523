@@ -1,1 +1,174 @@
-T1MB
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flashlight Fright</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        #gameArea {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background-image: url('abandoned_house.jpg');
+            background-size: cover;
+            transition: background-image 1s;
+        }
+        #flashlight {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle at center, transparent 10%, rgba(0,0,0,0.9) 70%);
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .ghost {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: url('ghost.png') no-repeat center;
+            background-size: contain;
+            display: none;
+        }
+        #ui {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+        #fearMeter, #batteryLife, #score {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+<div id="gameArea">
+    <div id="flashlight"></div>
+</div>
+<div id="ui">
+    <div id="fearMeter">Fear: <span id="fearLevel">0</span>%</div>
+    <div id="batteryLife">Battery: <span id="battery">100</span>%</div>
+    <div id="score">Score: <span id="currentScore">0</span></div>
+</div>
+
+<script>
+    const gameArea = document.getElementById('gameArea');
+    const flashlight = document.getElementById('flashlight');
+    const fearLevel = document.getElementById('fearLevel');
+    const battery = document.getElementById('battery');
+    const currentScore = document.getElementById('currentScore');
+    let isFlashlightOn = false;
+    let ghosts = [];
+    let batteryLife = 100;
+    let score = 0;
+    let fear = 0;
+    let gameTimer;
+    let environment = 'house';
+
+    // Toggle flashlight
+    document.addEventListener('click', function() {
+        isFlashlightOn = !isFlashlightOn;
+        flashlight.style.opacity = isFlashlightOn ? '1' : '0';
+        if (isFlashlightOn) batteryLife -= 0.1; // Battery drain
+    });
+
+    // Game logic
+    function gameLoop() {
+        updateFear();
+        spawnGhost();
+        checkGhosts();
+        updateBattery();
+        updateScore();
+        checkEnvironmentChange();
+
+        if (batteryLife <= 0 || fear >= 100) {
+            endGame();
+        }
+    }
+
+    function spawnGhost() {
+        if (Math.random() < (0.01 + (score / 10000))) { // Increasing difficulty
+            let ghost = document.createElement('div');
+            ghost.className = 'ghost';
+            ghost.style.top = Math.random() * (gameArea.offsetHeight - 100) + 'px';
+            ghost.style.left = Math.random() * (gameArea.offsetWidth - 100) + 'px';
+            gameArea.appendChild(ghost);
+            ghosts.push(ghost);
+        }
+    }
+
+    function checkGhosts() {
+        ghosts.forEach((ghost, index) => {
+            if (isFlashlightOn && isColliding(flashlight, ghost)) {
+                endGame();
+            } else if (Math.random() < 0.001) { // Subtle cues or removal
+                ghost.style.display = 'none';
+                ghosts.splice(index, 1);
+            }
+        });
+    }
+
+    function updateFear() {
+        fear += isFlashlightOn ? -0.05 : 0.1;
+        fear = Math.max(0, Math.min(100, fear));
+        fearLevel.textContent = Math.round(fear);
+    }
+
+    function updateBattery() {
+        batteryLife = Math.max(0, batteryLife);
+        battery.textContent = Math.round(batteryLife);
+        if (Math.random() < 0.0001 && batteryLife < 100) spawnBattery();
+    }
+
+    function updateScore() {
+        score += 1;
+        currentScore.textContent = score;
+    }
+
+    function spawnBattery() {
+        // Similar to ghost spawning, implement battery spawn
+    }
+
+    function checkEnvironmentChange() {
+        if (score > 3000 && environment === 'house') {
+            gameArea.style.backgroundImage = "url('misty_forest.jpg')";
+            environment = 'forest';
+        } else if (score > 6000 && environment === 'forest') {
+            gameArea.style.backgroundImage = "url('derelict_hospital.jpg')";
+            environment = 'hospital';
+        }
+    }
+
+    function endGame() {
+        clearInterval(gameTimer);
+        alert('Game Over! Your score: ' + score);
+        // Here you would typically reset the game or show a game over screen
+    }
+
+    function isColliding(a, b) {
+        const rect1 = a.getBoundingClientRect();
+        const rect2 = b.getBoundingClientRect();
+        return !(rect1.right < rect2.left || 
+                 rect1.left > rect2.right || 
+                 rect1.bottom < rect2.top || 
+                 rect1.top > rect2.bottom);
+    }
+
+    // Mouse movement for flashlight
+    gameArea.addEventListener('mousemove', function(e) {
+        flashlight.style.left = e.pageX - 50 + 'px';
+        flashlight.style.top = e.pageY - 50 + 'px';
+    });
+
+    // Start game loop
+    gameTimer = setInterval(gameLoop, 100);
+</script>
+</body>
+</html>

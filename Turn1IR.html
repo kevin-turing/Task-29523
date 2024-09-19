@@ -1,1 +1,406 @@
-T1IR
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flashlight Fright</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+        canvas { display: block; }
+        #ui, #mainMenu, #tutorial, #gameOver { position: fixed; color: #fff; }
+        #ui { top: 10px; left: 10px; }
+        #mainMenu, #tutorial, #gameOver { top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); padding: 20px; text-align: center; }
+        #jumpscare { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
+        button { background: #333; color: #fff; border: none; padding: 10px 20px; margin: 10px; cursor: pointer; }
+        button:hover { background: #555; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui" style="display: none;">
+        <div>Battery: <span id="battery">100</span>%</div>
+        <div>Fear: <span id="fear">0</span>%</div>
+        <div>Score: <span id="score">0</span></div>
+        <div>Environment: <span id="environment">Abandoned House</span></div>
+        <div>Time: <span id="time">0:00</span></div>
+        <div>Activity: <span id="activity">100</span>%</div>
+    </div>
+    <div id="mainMenu">
+        <h1>Flashlight Fright</h1>
+        <button id="startButton">Start Game</button>
+        <button id="tutorialButton">Tutorial</button>
+    </div>
+    <div id="tutorial" style="display: none;">
+        <h2>How to Play</h2>
+        <p>1. Move your mouse to look around.</p>
+        <p>2. Click and hold to turn on the flashlight.</p>
+        <p>3. Find and collect batteries to keep your flashlight powered.</p>
+        <p>4. Watch for red cues indicating nearby ghosts.</p>
+        <p>5. Don't let your activity level drop to zero!</p>
+        <p>6. Survive as long as possible and score points!</p>
+        <button id="backToMenuButton">Back to Menu</button>
+    </div>
+    <div id="gameOver" style="display: none;">
+        <h2>Game Over</h2>
+        <p>Final Score: <span id="finalScore"></span></p>
+        <button id="restartButton">Play Again</button>
+        <button id="menuButton">Main Menu</button>
+    </div>
+    <div id="jumpscare"></div>
+    <script>
+        // Game variables
+        let gameState = 'menu';
+        let canvas, ctx, flashlightOn, battery, fear, score, environment, ghosts, batteries, gameTime, activityLevel, lastActivityTime, lastMousePosition, imagesLoaded;
+
+        // Constants
+        const BATTERY_DRAIN_RATE = 0.2;
+        const FEAR_INCREASE_RATE = 0.1;
+        const FEAR_DECREASE_RATE = 0.05;
+        const GHOST_DETECTION_RADIUS = 150;
+        const BATTERY_COLLECTION_RADIUS = 50;
+        const FLASHLIGHT_RADIUS = 150;
+        const ACTIVITY_DECAY_RATE = 5;
+        const ACTIVITY_BOOST = 20;
+
+        // SVG definitions
+        const batterySVG = `
+            <svg viewBox="0 0 100 50" width="30" height="15">
+                <rect x="0" y="10" width="80" height="30" fill="#FFD700" />
+                <rect x="80" y="15" width="20" height="20" fill="#FFD700" />
+                <rect x="10" y="20" width="60" height="10" fill="#FFA500" />
+            </svg>
+        `;
+
+        // Create SVG elements
+        const batteryImg = new Image();
+
+        // Initialize game
+        function initGame() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+
+            // Event listeners
+            window.addEventListener('resize', resizeCanvas);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mousedown', () => { flashlightOn = true; boostActivity(); });
+            canvas.addEventListener('mouseup', () => { flashlightOn = false; });
+            document.getElementById('startButton').addEventListener('click', startGame);
+            document.getElementById('tutorialButton').addEventListener('click', showTutorial);
+            document.getElementById('backToMenuButton').addEventListener('click', showMainMenu);
+            document.getElementById('restartButton').addEventListener('click', startGame);
+            document.getElementById('menuButton').addEventListener('click', showMainMenu);
+
+            loadImages().then(() => {
+                imagesLoaded = true;
+                showMainMenu();
+            }).catch(error => {
+                console.error('Failed to load images:', error);
+                imagesLoaded = false;
+                showMainMenu();
+            });
+        }
+
+        // Resize canvas
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // Load images
+        function loadImages() {
+            return new Promise((resolve, reject) => {
+                batteryImg.onload = resolve;
+                batteryImg.onerror = reject;
+                batteryImg.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(batterySVG);
+            });
+        }
+
+        // Show main menu
+        function showMainMenu() {
+            gameState = 'menu';
+            document.getElementById('mainMenu').style.display = 'block';
+            document.getElementById('tutorial').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('ui').style.display = 'none';
+        }
+
+        // Show tutorial
+        function showTutorial() {
+            gameState = 'tutorial';
+            document.getElementById('mainMenu').style.display = 'none';
+            document.getElementById('tutorial').style.display = 'block';
+        }
+
+        // Start game
+        function startGame() {
+            gameState = 'playing';
+            document.getElementById('mainMenu').style.display = 'none';
+            document.getElementById('tutorial').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('ui').style.display = 'block';
+
+            // Reset game variables
+            flashlightOn = false;
+            battery = 100;
+            fear = 0;
+            score = 0;
+            environment = 'Abandoned House';
+            ghosts = [];
+            batteries = [];
+            gameTime = 0;
+            activityLevel = 100;
+            lastActivityTime = Date.now();
+            lastMousePosition = { x: canvas.width / 2, y: canvas.height / 2 };
+
+            gameLoop();
+        }
+
+        // Game loop
+        function gameLoop() {
+            if (gameState !== 'playing') return;
+
+            updateGame();
+            drawGame();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Update game state
+        function updateGame() {
+            updateActivity();
+
+            gameTime++;
+            score += Math.round(activityLevel / 100);
+            battery -= flashlightOn ? BATTERY_DRAIN_RATE : 0;
+            fear += flashlightOn ? -FEAR_DECREASE_RATE : FEAR_INCREASE_RATE;
+            fear = Math.max(0, Math.min(100, fear));
+
+            if (battery <= 0 || activityLevel <= 0) {
+                triggerJumpscare();
+                return;
+            }
+
+            if (Math.random() < 0.001) createGhost();
+            if (Math.random() < 0.02) createBattery();
+
+            updateGhosts();
+            updateBatteries();
+            updateEnvironment();
+            updateUI();
+        }
+
+        // Update ghosts
+        function updateGhosts() {
+            ghosts.forEach(ghost => {
+                ghost.x += ghost.vx;
+                ghost.y += ghost.vy;
+
+                if (ghost.x < 0 || ghost.x > canvas.width) ghost.vx *= -1;
+                if (ghost.y < 0 || ghost.y > canvas.height) ghost.vy *= -1;
+
+                const dx = lastMousePosition.x - ghost.x;
+                const dy = lastMousePosition.y - ghost.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < GHOST_DETECTION_RADIUS) {
+                    fear += 2;
+                    if (flashlightOn) {
+                        triggerJumpscare();
+                    }
+                }
+            });
+        }
+
+        // Update batteries
+        function updateBatteries() {
+            batteries = batteries.filter(bat => {
+                const dx = bat.x - lastMousePosition.x;
+                const dy = bat.y - lastMousePosition.y;
+                if (flashlightOn && dx * dx + dy * dy < BATTERY_COLLECTION_RADIUS * BATTERY_COLLECTION_RADIUS) {
+                    battery = Math.min(100, battery + 20);
+                    score += 50;
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        // Update environment
+        function updateEnvironment() {
+            if (gameTime === 300 && environment === 'Abandoned House') {
+                environment = 'Misty Forest';
+                score += 500;
+            } else if (gameTime === 600 && environment === 'Misty Forest') {
+                environment = 'Derelict Hospital';
+                score += 500;
+            }
+        }
+
+        // Update UI
+        function updateUI() {
+            document.getElementById('battery').textContent = Math.round(battery);
+            document.getElementById('fear').textContent = Math.round(fear);
+            document.getElementById('score').textContent = score;
+            document.getElementById('environment').textContent = environment;
+            document.getElementById('time').textContent = formatTime(gameTime);
+            document.getElementById('activity').textContent = Math.round(activityLevel);
+        }
+
+        // Draw game
+        function drawGame() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (flashlightOn) {
+                const gradient = ctx.createRadialGradient(lastMousePosition.x, lastMousePosition.y, 0, lastMousePosition.x, lastMousePosition.y, FLASHLIGHT_RADIUS);
+                gradient.addColorStop(0, 'rgba(255, 255, 200, 0.5)');
+                gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(lastMousePosition.x, lastMousePosition.y, FLASHLIGHT_RADIUS, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            drawBatteries();
+            drawGhostCues();
+        }
+
+        // Draw batteries
+        function drawBatteries() {
+            if (flashlightOn) {
+                batteries.forEach(bat => {
+                    const dx = bat.x - lastMousePosition.x;
+                    const dy = bat.y - lastMousePosition.y;
+                    if (dx * dx + dy * dy < FLASHLIGHT_RADIUS * FLASHLIGHT_RADIUS) {
+                        if (imagesLoaded) {
+                            ctx.drawImage(batteryImg, bat.x - 15, bat.y - 7.5);
+                        } else {
+                            ctx.fillStyle = '#FFD700';
+                            ctx.fillRect(bat.x - 15, bat.y - 7.5, 30, 15);
+                        }
+                    }
+                });
+            }
+        }
+
+        // Draw ghost cues
+        function drawGhostCues() {
+            ghosts.forEach(ghost => {
+                const dx = lastMousePosition.x - ghost.x;
+                const dy = lastMousePosition.y - ghost.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < 300) {
+                    const alpha = 0.7 * (1 - distance / 300);
+                    const radius = 30 * (1 - distance / 300);
+                    
+                    const gradient = ctx.createRadialGradient(lastMousePosition.x, lastMousePosition.y, 0, lastMousePosition.x, lastMousePosition.y, radius * 2);
+                    gradient.addColorStop(0, `rgba(255, 0, 0, ${alpha * 0.5})`);
+                    gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(lastMousePosition.x, lastMousePosition.y, radius * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(lastMousePosition.x, lastMousePosition.y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+
+        // Handle mouse move
+        function handleMouseMove(e) {
+            const dx = e.clientX - lastMousePosition.x;
+            const dy = e.clientY - lastMousePosition.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            activityLevel = Math.min(100, activityLevel + (distance / 10));
+            
+            lastMousePosition.x = e.clientX;
+            lastMousePosition.y = e.clientY;
+        }
+
+        // Update activity
+        function updateActivity() {
+            const now = Date.now();
+            const timeDiff = (now - lastActivityTime) / 1000;
+            activityLevel = Math.max(0, activityLevel - ACTIVITY_DECAY_RATE * timeDiff);
+            lastActivityTime = now;
+        }
+
+        // Boost activity
+        function boostActivity() {
+            activityLevel = Math.min(100, activityLevel + ACTIVITY_BOOST);
+        }
+
+        // Create ghost
+        function createGhost() {
+            ghosts.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                vx: (Math.random() - 0.5) * 1,
+                vy: (Math.random() - 0.5) * 1
+            });
+        }
+
+        // Create battery
+        function createBattery() {
+            batteries.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height
+            });
+        }
+
+        // Trigger jumpscare
+        function triggerJumpscare() {
+            gameState = 'gameover';
+            const jumpscare = document.getElementById('jumpscare');
+            jumpscare.style.display = 'block';
+            jumpscare.innerHTML = `
+                <svg viewBox="0 0 100 100" width="100%" height="100%">
+                    <path d="M50 10 C 20 10, 10 40, 10 70 Q 20 90, 30 70 Q 40 90, 50 70 Q 60 90, 70 70 Q 80 90, 90 70 C 90 40, 80 10, 50 10 Z" fill="white" />
+<circle cx="35" cy="40" r="5" fill="black" />
+<circle cx="65" cy="40" r="5" fill="black" />
+</svg>
+`;
+setTimeout(() => {
+jumpscare.style.display = 'none';
+showGameOver();
+}, 1000);
+}
+// Show game over screen
+function showGameOver() {
+        document.getElementById('finalScore').textContent = score;
+        document.getElementById('gameOver').style.display = 'block';
+        document.getElementById('ui').style.display = 'none';
+    }
+
+    // Format time
+    function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+
+    // Error handling wrapper
+    function errorHandler(func) {
+        return function(...args) {
+            try {
+                return func.apply(this, args);
+            } catch (error) {
+                console.error('An error occurred:', error);
+                showMainMenu();
+            }
+        }
+    }
+
+    // Wrap main functions with error handler
+    initGame = errorHandler(initGame);
+    gameLoop = errorHandler(gameLoop);
+    updateGame = errorHandler(updateGame);
+    drawGame = errorHandler(drawGame);
+
+    // Initialize the game
+    window.onload = initGame;
+</script></body>
+</html>

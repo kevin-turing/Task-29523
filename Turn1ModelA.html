@@ -1,164 +1,185 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>THEMIS & ARTEMIS Mission Visualization</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.3.0/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"
-    />
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        background: #000;
-        color: #fff;
-        overflow: hidden;
-      }
-      #visualization {
-        width: 100vw;
-        height: 100vh;
-        position: relative;
-      }
-      .orbit {
-        stroke: #fff;
-        fill: none;
-        stroke-width: 1;
-      }
-      .probe {
-        fill: #ffd700;
-        stroke: #000;
-        stroke-width: 0.5;
-      }
-      .info-box {
-        position: absolute;
-        background: rgba(0, 0, 0, 0.8);
-        padding: 10px;
-        border-radius: 5px;
-        display: none;
-      }
-      .phase-button {
-        background-color: #4caf50; /* Green */
-        border: none;
-        color: white;
-        padding: 15px 32px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 16px;
-        margin: 4px 2px;
-        cursor: pointer;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="visualization"></div>
-    <div id="info" class="info-box"></div>
-    <div style="position: absolute; bottom: 10px; left: 10px">
-      <button class="phase-button" onclick="showPhase('Tail')">
-        Tail Phase
-      </button>
-      <button class="phase-button" onclick="showPhase('Dawn')">
-        Dawn Phase
-      </button>
-      <button class="phase-button" onclick="showPhase('Dayside')">
-        Dayside Phase
-      </button>
-      <button class="phase-button" onclick="showPhase('Dusk')">
-        Dusk Phase
-      </button>
-    </div>
+<head>
+<meta charset="UTF-8">
+<title>Flashlight Horror</title>
+<style>
+body { 
+    background: #000; 
+    color: #fff; 
+    font-family: 'Arial', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+}
+#gameCanvas {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    display: block;
+}
+#uiLayer {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-size: 18px;
+}
+</style>
+</head>
+<body>
+<div id="uiLayer">
+    <div>Battery: <span id="batteryLife">100%</span></div>
+    <div>Fear: <span id="fearMeter">0</span></div>
+    <div>Score: <span id="score">0</span></div>
+</div>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+<script>
+// Game setup
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const batteryUI = document.getElementById('batteryLife');
+const fearUI = document.getElementById('fearMeter');
+const scoreUI = document.getElementById('score');
 
-    <script>
-      const width = window.innerWidth,
-        height = window.innerHeight;
-      const svg = d3
-        .select('#visualization')
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height);
+let flashlightOn = false;
+let batteryLife = 100; // Percentage
+let fearMeter = 0;
+let score = 0;
+let ghosts = [];
+let batteries = [];
+let environment = 'house';
+let gameOver = false;
 
-      const phases = {
-        Tail: { apogee: 12, sector: 'nightside', mmsPosition: 'dawn' },
-        Dawn: { apogee: 12, sector: 'dawnside', mmsPosition: 'dayside' },
-        Dayside: { apogee: 12, sector: 'dayside', mmsPosition: 'dusk' },
-        Dusk: { apogee: 13, sector: 'duskside', mmsPosition: 'tail' },
-      };
+// Game Objects
+class Ghost {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.visible = false;
+    }
 
-      function drawOrbits(phase) {
-        svg.selectAll('*').remove();
-        const phaseData = phases[phase];
-        const scale = d3
-          .scaleLinear()
-          .domain([0, 30])
-          .range([0, height / 2 - 50]);
-        const center = { x: width / 2, y: height / 2 };
-
-        // Earth
-        svg
-          .append('circle')
-          .attr('cx', center.x)
-          .attr('cy', center.y)
-          .attr('r', 20)
-          .attr('fill', 'blue');
-
-        // Draw THEMIS orbits
-        for (let i = 0; i < 3; i++) {
-          const r = scale(phaseData.apogee + i * 0.5);
-          svg
-            .append('ellipse')
-            .attr('class', 'orbit')
-            .attr('cx', center.x)
-            .attr('cy', center.y)
-            .attr('rx', r)
-            .attr('ry', r * 0.5)
-            .attr('transform', `rotate(${i * 30}, ${center.x}, ${center.y})`);
-
-          // Probe position
-          svg
-            .append('circle')
-            .attr('class', 'probe')
-            .attr('cx', center.x + r * Math.cos((i * Math.PI) / 6))
-            .attr('cy', center.y + r * 0.5 * Math.sin((i * Math.PI) / 6))
-            .attr('r', 5)
-            .on('mouseover', function () {
-              showInfo(phase, i);
-            })
-            .on('mouseout', hideInfo);
+    update() {
+        if (flashlightOn && this.isIlluminated()) {
+            gameOver = true;
         }
+    }
 
-        // MMS position indicator
-        svg
-          .append('text')
-          .attr('x', width - 100)
-          .attr('y', 50)
-          .text(`MMS: ${phaseData.mmsPosition} sector`)
-          .attr('fill', 'white');
-      }
+    isIlluminated() {
+        // Simplified: check if ghost is within a certain radius of the flashlight beam
+        return Math.hypot(this.x - canvas.width / 2, this.y - canvas.height / 2) < 100;
+    }
 
-      function showInfo(phase, probeIndex) {
-        d3.select('#info')
-          .style('display', 'block')
-          .html(
-            `Phase: ${phase}<br>Probe ${probeIndex + 3}: Studying ${
-              phaseData.sector
-            } interactions`
-          )
-          .style('left', d3.event.pageX + 10 + 'px')
-          .style('top', d3.event.pageY - 28 + 'px');
-      }
+    draw() {
+        if (this.visible || flashlightOn) {
+            ctx.fillStyle = 'rgba(255,0,0,0.5)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 20, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
 
-      function hideInfo() {
-        d3.select('#info').style('display', 'none');
-      }
+class Battery {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
 
-      function showPhase(phase) {
-        drawOrbits(phase);
-      }
+    draw() {
+        ctx.fillStyle = 'yellow';
+        ctx.fillRect(this.x, this.y, 10, 20);
+    }
+}
 
-      // Initial draw
-      drawOrbits('Tail');
-    </script>
-  </body>
+// Game functions
+function createGhost() {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    ghosts.push(new Ghost(x, y, environment));
+}
+
+function createBattery() {
+    const x = Math.random() * (canvas.width - 20) + 10;
+    const y = Math.random() * (canvas.height - 20) + 10;
+    batteries.push(new Battery(x, y));
+}
+
+function updateGame() {
+    if (gameOver) return;
+
+    // Update logic
+    score++;
+    scoreUI.textContent = score;
+
+    if (Math.random() < 0.001 * (1 + score / 10000)) createGhost();
+    if (Math.random() < 0.0005) createBattery();
+
+    ghosts.forEach(g => g.update());
+    fearMeter += flashlightOn ? -0.1 : 0.1;
+    fearMeter = Math.max(0, Math.min(100, fearMeter));
+    fearUI.textContent = Math.floor(fearMeter);
+
+    batteryLife -= flashlightOn ? 0.1 : 0;
+    batteryLife = Math.max(0, batteryLife);
+    batteryUI.textContent = `${Math.floor(batteryLife)}%`;
+
+    if (batteryLife <= 0) flashlightOn = false;
+
+    // Check for battery pickup
+    for(let i = batteries.length - 1; i >= 0; i--) {
+        if (Math.hypot(batteries[i].x - canvas.width / 2, batteries[i].y - canvas.height / 2) < 20) {
+            batteryLife = Math.min(100, batteryLife + 30);
+            score += 50;
+            batteries.splice(i, 1);
+        }
+    }
+
+    if (score > 3000 && environment === 'house') {
+        environment = 'forest';
+    } else if (score > 6000 && environment === 'forest') {
+        environment = 'endless';
+    }
+}
+
+function drawGame() {
+    ctx.fillStyle = flashlightOn ? '#111' : '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (flashlightOn) {
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, canvas.height / 2, 200, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fill();
+    }
+
+    ghosts.forEach(g => g.draw());
+    batteries.forEach(b => b.draw());
+
+    if (gameOver) {
+        ctx.fillStyle = 'red';
+        ctx.font = '40px Arial';
+        ctx.fillText('Game Over', canvas.width / 2 - 100, canvas.height / 2);
+    }
+}
+
+function gameLoop() {
+    updateGame();
+    drawGame();
+    if (!gameOver) requestAnimationFrame(gameLoop);
+}
+
+// Event listeners
+document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') {
+        flashlightOn = !flashlightOn;
+    }
+});
+
+// Start game
+gameLoop();
+</script>
+</body>
 </html>
